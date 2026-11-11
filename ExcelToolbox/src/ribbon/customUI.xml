@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Excel 小工具箱 - 自定义功能区
+  命名空间使用 2006/01，兼容 Office 2007 / 2010 / 2013 / 2016 / 2019 / 365。
+  关系类型: http://schemas.microsoft.com/office/2007/relationships/ui/extensibility
+  由 build/inject_ribbon.py 或 Build-ExcelToolbox.ps1 注入 XLAM 的 customUI/customUI.xml 部件。
+  说明: imageMso 仅影响图标显示；若某个 ID 在当前 Office 版本不存在，按钮仍可正常点击，
+        只需把对应 ID 换成任意有效的内置图标名即可，不影响功能。
+-->
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="rxOnLoad">
+  <ribbon startFromScratch="false">
+    <tabs>
+      <tab id="tabExcelToolbox" label="Excel 小工具箱" insertAfterMso="TabHome" keytip="XT">
+
+        <group id="grpDataClean" label="数据清理">
+          <button id="btnDeleteEmptyRows"
+                  label="删除空行"
+                  size="large"
+                  imageMso="Delete"
+                  onAction="rxDeleteEmptyRows"
+                  screentip="删除当前工作表中完全为空的行"
+                  supertip="只处理当前活动工作簿的活动工作表。执行前会询问确认，并自动新建一张【备份】工作表保存改动前的完整数据，可随时恢复。"/>
+          <button id="btnRemoveDuplicates"
+                  label="一键去重"
+                  size="large"
+                  imageMso="RemoveDuplicates"
+                  onAction="rxRemoveDuplicates"
+                  screentip="对选中区域去重，保留第一条记录"
+                  supertip="按选中区域所有列的组合判断重复，可选择第一行是否为表头。执行前会询问确认，并自动新建【备份】工作表。"/>
+        </group>
+
+        <group id="grpStyle" label="表格美化">
+          <button id="btnBeautifyHeader"
+                  label="美化表头"
+                  size="large"
+                  imageMso="FormatCells"
+                  onAction="rxBeautifyHeader"
+                  screentip="蓝底白字加粗 + 自动调整列宽"
+                  supertip="把选中区域的第一行设置为蓝色背景、白色粗体、居中，并自动调整选中区域涉及的列宽。"/>
+        </group>
+
+        <group id="grpHelp" label="帮助">
+          <button id="btnAbout"
+                  label="关于 / 安全说明"
+                  size="normal"
+                  onAction="rxAbout"
+                  screentip="版本、备份与安全说明"/>
+        </group>
+
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

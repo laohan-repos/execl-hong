@@ -1,0 +1,13 @@
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+~$*
+
+# Local assistant state and downloaded packaging experiments
+/.workbuddy/
+/ExcelToolbox/build/sfx/
+
+# Generated binaries stay out of source control
+/ExcelToolbox/dist/*
+!/ExcelToolbox/dist/README.txt
