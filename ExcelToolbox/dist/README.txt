@@ -1,26 +1,18 @@
-本目录用于存放最终交付的两个二进制产物：
+﻿Excel 小工具箱 — EXE 交付说明（2026-11-11）
 
-    ExcelToolbox.xlam          Excel 加载项（含编译后的 VBA 工程 + Ribbon 菜单）
-    ExcelToolboxSetup.exe      Inno Setup 制作的安装包
+运行 ExcelToolboxSetup.exe 安装。
+需要 Windows 10/11 和桌面版 Microsoft Excel 2010 或以上，不支持 WPS。
 
-这两个文件需要在 Windows 上生成，原因：
-  * .xlam 内的 vbaProject.bin 是 Excel 的 VBA 编译器产出的二进制，
-    只有 Excel（Windows 版，通过 COM 自动化）能生成，纯源码无法替代。
-  * Inno Setup 的 ISCC.exe 只有 Windows 版，无法在 macOS/Linux 上编译 EXE。
+这是在目标电脑生成 XLAM 的安装包：先调用本机 Excel 编译并回归测试，
+成功后再安装文件与注册加载项。目标电脑无需联网、Python 或 Inno Setup。
+安装前请保存并关闭所有 Excel，生成及测试可能需要几分钟。
 
-生成方式（在 Windows 上，装好桌面版 Excel + Inno Setup 6 后）：
-  双击项目根目录的 Build.cmd，等待脚本跑完即可。
-  脚本会自动完成环境检查 -> 编译 XLAM -> 注入 Ribbon -> 编译 EXE -> COM 自动化测试。
+安装时临时开启 VBA 工程对象模型访问，完成后还原原设置。
+日志：%LOCALAPPDATA%\ExcelToolbox\Logs
+安装目录：%APPDATA%\Microsoft\AddIns\ExcelToolbox
 
-生成前请先把整个 ExcelToolbox 文件夹拷到 Windows 机器（保留目录结构）。
+本机仅有 WPS，已经验证打包、资源提取与哈希，以及不支持环境的正确退出。
+尚未在 Microsoft Excel 上完成安装、卸载、功能区与功能运行验证。
+安装包未签名。
 
-本仓库目前已提供（可直接使用/审阅）：
-  src/vba/*.bas, *.cls        完整 VBA 源码
-  src/ribbon/customUI.xml     功能区菜单定义
-  src/installer/*.iss         Inno Setup 安装脚本（检测/注册/受信任位置/卸载）
-  tests/ExcelToolbox_TestData.xlsx   测试用工作簿
-  build/*.ps1, *.py, *.vbs    一键构建、注入、测试、注册工具
-  README.md                   完整说明与验证报告
-
-不要把一个「没有 vbaProject.bin 的空壳 xlam」当成成品：那样菜单会出现但按钮无效。
-所以本目录不放假文件。
+完整说明见项目 ExcelToolbox\README.md。

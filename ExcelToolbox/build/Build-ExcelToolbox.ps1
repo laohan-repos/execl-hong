@@ -28,11 +28,17 @@ param(
     [switch] $SkipInstaller,
     [switch] $SkipTests,
     [switch] $SkipXlam,
-    [string] $IsccPath = ''
+    [string] $IsccPath = '',
+    [switch] $PowerShellRibbon,
+    [string] $LogPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $script:Failed = 0
+if ($LogPath) {
+    New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
+    Start-Transcript -LiteralPath $LogPath -Force | Out-Null
+}
 
 # COM 后期绑定在部分非英语区域设置下会出问题，统一成 en-US
 try { [System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('en-US') } catch { }
@@ -76,6 +82,12 @@ try {
     $xlProbe = New-Object -ComObject Excel.Application
     $script:OfficeVer = [string]$xlProbe.Version          # 例: 16.0
     $script:ExcelPath = [string]$xlProbe.Path
+    $excelExe = Join-Path $script:ExcelPath 'EXCEL.EXE'
+    if ([version]$script:OfficeVer -lt [version]'14.0' -or
+        -not (Test-Path -LiteralPath $excelExe) -or
+        [System.Diagnostics.FileVersionInfo]::GetVersionInfo($excelExe).CompanyName -notmatch 'Microsoft') {
+        throw 'Excel.Application 未指向受支持的 Microsoft Excel 2010 或以上版本；WPS 不支持此构建流程。'
+    }
     Write-OK ("Excel COM    : 可用，Office 版本 {0}" -f $script:OfficeVer)
     Write-Info ("Excel 安装目录: {0}" -f $script:ExcelPath)
 } catch {
@@ -131,8 +143,11 @@ else {
     exit 1
 }
 
-$pyCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
+$pyCmd = $null
+if (-not $PowerShellRibbon) {
+    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
+}
 if ($pyCmd) { Write-OK ("Python       : {0}（用于已验证的 Ribbon 注入器）" -f $pyCmd.Source) }
 else { Write-Info 'Python       : 未安装，Ribbon 注入改用内置 PowerShell 实现' }
 
@@ -180,9 +195,9 @@ if ($SkipXlam -and (Test-Path $XlamPath)) {
     Write-Info '按 -SkipXlam 跳过重建，使用现有 XLAM'
     $xlamBuilt = $true
 } else {
-    Enable-VbomTemporarily
     $xl = $null; $wb = $null
     try {
+        Enable-VbomTemporarily
         $xl = New-Object -ComObject Excel.Application
         $xl.Visible = $false
         $xl.DisplayAlerts = $false

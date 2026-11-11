@@ -26,14 +26,18 @@ DefaultDirName={userappdata}\Microsoft\AddIns\ExcelToolbox
 DefaultGroupName={#AppName}
 DisableDirPage=yes
 DisableProgramGroupPage=yes
+#ifdef BuildOnInstall
+InfoBeforeFile=InfoBeforeSource.txt
+#else
 InfoBeforeFile=InfoBefore.txt
+#endif
 OutputDir=..\..\dist
 OutputBaseFilename=ExcelToolboxSetup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+MinVersion=10.0
 UninstallDisplayName={#AppName} {#AppVer}
 UninstallDisplayIcon={uninstallexe}
 CloseApplications=no
@@ -42,8 +46,18 @@ CloseApplications=no
 ; Name: "cn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Files]
+#ifdef BuildOnInstall
+; 安装前先在临时目录编译、回归；成功后才开始安装和写入注册表。
+Source: "..\..\build\Build-ExcelToolbox.ps1"; DestDir: "{tmp}\ExcelToolbox\build"; Flags: dontcopy
+Source: "..\vba\*.bas"; DestDir: "{tmp}\ExcelToolbox\src\vba"; Flags: dontcopy
+Source: "..\vba\ThisWorkbook.cls"; DestDir: "{tmp}\ExcelToolbox\src\vba"; Flags: dontcopy
+Source: "..\ribbon\customUI.xml"; DestDir: "{tmp}\ExcelToolbox\src\ribbon"; Flags: dontcopy
+Source: "..\..\tests\ExcelToolbox_TestData.xlsx"; DestDir: "{tmp}\ExcelToolbox\tests"; Flags: dontcopy
+Source: "{tmp}\ExcelToolbox\dist\{#AddinFile}"; DestDir: "{app}"; Flags: external ignoreversion
+#else
 Source: "..\..\dist\{#AddinFile}";          DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\README.md";                  DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
+#endif
+Source: "UserGuide.txt"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
 Source: "..\..\build\Register-ExcelAddin.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
@@ -83,110 +97,84 @@ var
   gOfficeBit : String;
   gExcelExe  : String;
   gOpenName  : String;
+#ifdef BuildOnInstall
+  gBuildReady: Boolean;
+#endif
 
 { ---------- Office 版本 / 位数 / 路径检测 ---------- }
 
-function VerFromCurVer(): String;
+function IsExcelPath(Path: String): Boolean;
 var
-  s: String;
+  VersionMS, VersionLS: Cardinal;
+  Major: Integer;
 begin
-  Result := '';
-  if RegQueryStringValue(HKCR, 'Excel.Application\CurVer', '', s) then
-  begin
-    { 典型值: Excel.Application.16 }
-    if Pos('.16', s) > 0 then Result := '16.0'
-    else if Pos('.15', s) > 0 then Result := '15.0'
-    else if Pos('.14', s) > 0 then Result := '14.0'
-    else if Pos('.12', s) > 0 then Result := '12.0'
-    else if Pos('.11', s) > 0 then Result := '11.0';
-  end;
+  Result := False;
+  if (CompareText(ExtractFileName(Path), 'EXCEL.EXE') <> 0) or
+     not FileExists(Path) or
+     (Pos('kingsoft', Lowercase(Path)) > 0) or
+     (Pos('wps', Lowercase(Path)) > 0) then Exit;
+  if not GetVersionNumbers(Path, VersionMS, VersionLS) then Exit;
+  Major := VersionMS shr 16;
+  if Major < 14 then Exit;
+  gExcelExe := Path;
+  gOfficeVer := IntToStr(Major) + '.0';
+  Result := True;
 end;
 
-function VerFromClickToRun(): String;
-var
-  s: String;
-begin
-  Result := '';
-  if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\Office\ClickToRun\Configuration',
-                         'VersionToReport', s) then
-  begin
-    { 典型值: 16.0.14326.20504 }
-    if Copy(s, 1, 3) = '16.' then Result := '16.0'
-    else if Copy(s, 1, 3) = '15.' then Result := '15.0'
-    else if Copy(s, 1, 3) = '14.' then Result := '14.0';
-  end;
-end;
-
-function VerFromInstallRoot(): String;
+function FindExcelInView(RootKey: Integer): Boolean;
 var
   i: Integer;
-  p: String;
-  v: array[0..4] of String;
+  Path: String;
+  Versions: array[0..2] of String;
 begin
-  Result := '';
-  v[0] := '16.0'; v[1] := '15.0'; v[2] := '14.0'; v[3] := '12.0'; v[4] := '11.0';
-  for i := 0 to 4 do
+  Result := False;
+  if RegQueryStringValue(RootKey,
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe', '', Path) then
   begin
-    if RegQueryStringValue(HKLM,
-      'SOFTWARE\Microsoft\Office\' + v[i] + '\Excel\InstallRoot', 'Path', p) then
+    Path := RemoveQuotes(Trim(Path));
+    if IsExcelPath(Path) then
     begin
-      if (gExcelExe = '') and FileExists(p + 'EXCEL.EXE') then
-        gExcelExe := p + 'EXCEL.EXE';
-      if Result = '' then Result := v[i];
+      Result := True;
+      Exit;
     end;
-    { 64 位系统上的 32 位 Office }
-    if RegQueryStringValue(HKLM,
-      'SOFTWARE\WOW6432Node\Microsoft\Office\' + v[i] + '\Excel\InstallRoot', 'Path', p) then
+  end;
+  Versions[0] := '16.0'; Versions[1] := '15.0'; Versions[2] := '14.0';
+  for i := 0 to 2 do
+  begin
+    if RegQueryStringValue(RootKey,
+      'SOFTWARE\Microsoft\Office\' + Versions[i] + '\Excel\InstallRoot', 'Path', Path) then
     begin
-      if (gExcelExe = '') and FileExists(p + 'EXCEL.EXE') then
-        gExcelExe := p + 'EXCEL.EXE';
-      if gOfficeBit = '' then gOfficeBit := '32-bit';
-      if Result = '' then Result := v[i];
+      if IsExcelPath(AddBackslash(RemoveQuotes(Trim(Path))) + 'EXCEL.EXE') then
+      begin
+        Result := True;
+        Exit;
+      end;
     end;
   end;
 end;
 
 function DetectExcel(): Boolean;
-var
-  s: String;
 begin
   gOfficeVer := '';
   gOfficeBit := '';
   gExcelExe  := '';
 
-  { EXCEL.EXE 路径 }
-  if RegQueryStringValue(HKLM,
-    'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe', '', s) then
-    if FileExists(s) then gExcelExe := s;
-  if (gExcelExe = '') and RegQueryStringValue(HKCU,
-    'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe', '', s) then
-    if FileExists(s) then gExcelExe := s;
-
-  { 版本号，按可靠度依次尝试 }
-  gOfficeVer := VerFromCurVer();
-  if gOfficeVer = '' then gOfficeVer := VerFromClickToRun();
-  if gOfficeVer = '' then gOfficeVer := VerFromInstallRoot();
-
-  { 位数 }
-  if gOfficeBit = '' then
-    if RegQueryStringValue(HKLM,
-      'SOFTWARE\Microsoft\Office\ClickToRun\Configuration', 'Platform', s) then
-    begin
-      if s = 'x86' then gOfficeBit := '32-bit'
-      else if s = 'x64' then gOfficeBit := '64-bit';
-    end;
-  if gOfficeBit = '' then
+  { 分别检查两个注册表视图，避免把 WPS 的 Excel.Application 别名当成 Office。 }
+  Result := FindExcelInView(HKLM32) or FindExcelInView(HKCU32);
+  if Result then gOfficeBit := '32-bit';
+  if not Result and IsWin64 then
   begin
-    if Pos('(x86)', gExcelExe) > 0 then gOfficeBit := '32-bit'
-    else if Pos('Program Files', gExcelExe) > 0 then gOfficeBit := '64-bit'
-    else gOfficeBit := 'unknown';
+    Result := FindExcelInView(HKLM64) or FindExcelInView(HKCU64);
+    if Result then gOfficeBit := '64-bit';
   end;
-
-  { 必须能找到 Excel 的 COM 注册，否则加载项一定无法工作 }
-  Result := (gOfficeVer <> '') and RegKeyExists(HKCR, 'Excel.Application');
+  if Result then
+  begin
+    Result := RegKeyExists(HKCR32, 'Excel.Application');
+    if not Result and IsWin64 then Result := RegKeyExists(HKCR64, 'Excel.Application');
+  end;
 end;
 
-{ ---------- 供 [Registry] 使用的 {code:...} 函数 ---------- }
+// ---------- 供 [Registry] 使用的 code 常量函数 ----------
 
 function GetOfficeVer(Param: String): String;
 var
@@ -216,7 +204,7 @@ begin
     if i = 0 then n := 'OPEN' else n := 'OPEN' + IntToStr(i);
     if not RegValueExists(HKCU, key, n) then Break;
     i := i + 1;
-    if i > 200 then Break;
+    if i > 200 then RaiseException('Excel 的 OPEN 注册项已满，无法安全注册加载项。');
   end;
   gOpenName := n;
   Result := n;
@@ -231,6 +219,7 @@ begin
   Result := False;
   while FindWindowByClassName('XLMAIN') <> 0 do
   begin
+    if WizardSilent then Exit;
     r := MsgBox('检测到 Microsoft Excel 正在运行。' #13#10 #13#10 +
                 '请先保存好工作，并关闭所有 Excel 窗口，再继续。' #13#10 #13#10 +
                 '关闭后点【确定】继续，点【取消】退出。',
@@ -248,7 +237,9 @@ begin
   dummy := DetectExcel();
   if not dummy then
   begin
-    MsgBox('未检测到 Microsoft Office Excel，安装程序将退出。' #13#10 #13#10 +
+    Log('Unsupported Office: ' + gOfficeVer + '; ' + gExcelExe);
+    if not WizardSilent then
+    MsgBox('未检测到受支持的 Microsoft Office Excel，安装程序将退出。' #13#10 #13#10 +
            '本工具需要桌面版 Microsoft Office Excel（Office 2010 / 14.0 及以上）。' #13#10 +
            '网页版 Excel、WPS、仅安装 Office 运行时均不受支持。' #13#10 #13#10 +
            '检测到的版本号 : ' + gOfficeVer + #13#10 +
@@ -260,6 +251,46 @@ begin
   if not AskCloseExcel() then Exit;
   Result := True;
 end;
+
+#ifdef BuildOnInstall
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  BuildRoot, BuildScript, BuildLog, Params, OldCaption: String;
+  ExitCode: Integer;
+begin
+  Result := '';
+  if gBuildReady then Exit;
+  if not AskCloseExcel() then
+  begin
+    Result := '请保存并关闭所有 Excel 窗口后重试。';
+    Exit;
+  end;
+  OldCaption := WizardForm.PreparingLabel.Caption;
+  WizardForm.PreparingLabel.Caption := '正在生成并验证 Excel 加载项，请稍候…';
+  try
+    ExtractTemporaryFiles('{tmp}\ExcelToolbox\*');
+    BuildRoot := ExpandConstant('{tmp}\ExcelToolbox');
+    BuildScript := BuildRoot + '\build\Build-ExcelToolbox.ps1';
+    BuildLog := ExpandConstant('{localappdata}\ExcelToolbox\Logs\build-') +
+      GetDateTimeString('yyyymmdd-hhnnss', '', '') + '.log';
+    Params := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      BuildScript + '" -SkipInstaller -PowerShellRibbon -LogPath "' + BuildLog + '"';
+    Log('Building add-in; transcript: ' + BuildLog);
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+                Params, BuildRoot, SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+      Result := '无法启动 Windows PowerShell。错误：' + SysErrorMessage(ExitCode)
+    else if ExitCode <> 0 then
+      Result := '加载项生成或测试失败，尚未安装。请查看日志：' + #13#10 + BuildLog
+    else if not FileExists(BuildRoot + '\dist\{#AddinFile}') then
+      Result := '未生成加载项，尚未安装。请查看日志：' + #13#10 + BuildLog
+    else
+      gBuildReady := True;
+  except
+    Result := '准备安装失败：' + GetExceptionMessage;
+  end;
+  WizardForm.PreparingLabel.Caption := OldCaption;
+end;
+#endif
 
 function InitializeUninstall(): Boolean;
 begin
